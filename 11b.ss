@@ -48,7 +48,8 @@
   [letrec-exp
    (ids (list-of symbol?))
    (vals (list-of expression?))
-   (bodies (list-of expression?))])
+   (bodies (list-of expression?))]
+)
 
 ;; Procedures to make the parser a little bit saner.
 (define 1st car)
@@ -66,7 +67,14 @@
   (lambda (datum)
     (cond
      [(symbol? datum) (var-exp datum)]
-     [(lit? datum) (lit-exp datum)]
+     [(lit? datum) 
+        (lit-exp datum)
+        ;   (if (pair? datum)
+        ;     (2nd datum)
+        ;     datum
+        ;   )
+        ; )
+     ]
      [(pair? datum)
       (cond
        [(eqv? (car datum) 'lambda)
@@ -105,9 +113,44 @@
 		      (map parse-exp (cdr datum)))])]
      [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
-;; An auxiliary procedure that could be helpful.
-(define var-exp?
-  (lambda (x)
-    (cases expression x
-           [var-exp (id) #t]
-           [else #f])))
+(define unparse-exp
+  (lambda (exp)
+    (cases expression exp
+      [var-exp (id) id]
+      [lambda-exp (ids bodies) (append (list 'lambda ids) (map unparse-exp bodies))]
+      [improper-lambda-exp (ids extra-id bodies) 
+       (append (list 'lambda 
+          (if (null? ids)
+            extra-id
+            (improper-snoc ids extra-id)
+          )
+        ) 
+        (map unparse-exp bodies))
+      ]
+      [app-exp (rator rands) (map unparse-exp (cons rator rands))]
+      [set!-exp (id val) (list 'set! id (unparse-exp val))]
+      [lit-exp (val) val]
+      [if-exp (condition true false) (cons 'if (map unparse-exp (list condition true false)))]
+      [let-exp (ids vals bodies) 
+        (append (list 'let (map list ids (map unparse-exp vals))) (map unparse-exp bodies))]
+      [named-let-exp (name ids vals bodies)
+        (append (list 'let name (map list ids (map unparse-exp vals))) (map unparse-exp bodies))
+      ]
+      [let*-exp (ids vals bodies)
+        (append (list 'let* (map list ids (map unparse-exp vals))) (map unparse-exp bodies))
+      ]
+      [letrec-exp (ids vals bodies)
+        (append (list 'letrec (map list ids (map unparse-exp vals))) (map unparse-exp bodies))
+      ]
+    )
+  )
+)
+
+(define improper-snoc
+  (lambda (l c)
+    (if (null? l)
+      c
+      (cons (car l) (improper-snoc (cdr l) c))
+    )
+  )
+)
