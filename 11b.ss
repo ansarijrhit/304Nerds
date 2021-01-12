@@ -129,7 +129,7 @@
 (define (check-lets exp)
   (cond [(null? (cddr exp)) (eopl:error 'parse-exp "~s-expression has incorrect length ~s" exp)]
         [(not (list? (2nd exp))) (eopl:error 'parse-exp "declarations in ~s-expression not a list ~s" exp)]
-        [(ormap (lambda (x) (or (not (pair? x)) (null? (cdr x)) (not (pair? cdr)) (not (null? (cddr x))))) (2nd exp))
+        [(ormap (lambda (x) (or (not (pair? x)) (null? (cdr x)) (not (pair? (cdr x))) (not (null? (cddr x))))) (2nd exp))
           (eopl:error 'parse-exp "declaration in ~s-exp is not a proper list of length 2 ~s" exp)]
         [(not (andmap symbol? (map car (2nd exp)))) (eopl:error 'parse-exp "vars in ~s-exp must be symbols ~s" exp)]
         [else #f]))
