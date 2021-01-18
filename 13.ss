@@ -1,16 +1,16 @@
-;:  Single-file version of the interpreter.
+;;  Single-file version of the interpreter.
 ;; Easier to submit to server, probably harder to use in the development process
 
 (load "chez-init.ss") 
 
-;-------------------+
-;                   |
-;    DATATYPES      |
-;                   |
-;-------------------+
+;;-------------------+
+;;                   |
+;;    DATATYPES      |
+;;                   |
+;;-------------------+
 
-; parsed expression.  You'll probably want to replace this 
-; code with your expression datatype from A11b
+;; parsed expression.  You'll probably want to replace this 
+;; code with your expression datatype from A11b
 
 (define-datatype expression expression?
   [var-exp
@@ -29,8 +29,8 @@
    (id symbol?)
    (val expression?)]
   [lit-exp 
-    (val (lambda (val) #t))
-    ]
+   (val (lambda (val) #t))
+   ]
   [if-exp
    (condition expression?)
    (true expression?)
@@ -52,13 +52,13 @@
    (ids (list-of symbol?))
    (vals (list-of expression?))
    (bodies (list-of expression?))])
-	
+
 
 ;; environment type definitions
 
 (define scheme-value?
   (lambda (x) #t))
-  
+
 (define-datatype environment environment?
   [empty-env-record]
   [extended-env-record
@@ -67,32 +67,36 @@
    (env environment?)])
 
 
-; datatype for procedures.  At first there is only one
-; kind of procedure, but more kinds will be added later.
+;; datatype for procedures.  At first there is only one
+;; kind of procedure, but more kinds will be added later.
 
 (define-datatype proc-val proc-val?
   [prim-proc
-   (name symbol?)])
-
-  
-;-------------------+
-;                   |
-;    PARSER         |
-;                   |
-;-------------------+
+   (name symbol?)]
+  [closure
+   (inputs (list-of symbol?))
+   (bodies (list-of scheme-value?))
+   (env environment?)])
 
 
-; This is a parser for simple Scheme expressions, such as those in EOPL 3.1 thru 3.3.
+;;-------------------+
+;;                   |
+;;    PARSER         |
+;;                   |
+;;-------------------+
 
-; You will want to replace this with your parser that includes more expression types, more options for these types, and error-checking.
 
-; Procedures to make the parser a little bit saner.
+;; This is a parser for simple Scheme expressions, such as those in EOPL 3.1 thru 3.3.
+
+;; You will want to replace this with your parser that includes more expression types, more options for these types, and error-checking.
+
+;; Procedures to make the parser a little bit saner.
 (define 1st car)
 (define 2nd cadr)
 (define 3rd caddr)
 (define 4th cadddr)
 
-; Again, you'll probably want to use your code form A11b
+;; Again, you'll probably want to use your code form A11b
 
 (define (improper-split ls)
   (let helper ([ls ls] [acc '()])
@@ -106,10 +110,8 @@
      [(symbol? datum) (var-exp datum)]
      [(lit? datum) 
       (if (and (pair? datum) (eqv? 'quote (car datum)))
-        (lit-exp (2nd datum))
-        (lit-exp datum)
-      )
-      ]
+          (lit-exp (2nd datum))
+          (lit-exp datum))]
      [(pair? datum)
       (cond
        [(eqv? (car datum) 'lambda )
@@ -162,10 +164,10 @@
               (letrec-exp (map 1st (2nd datum))
                           (map parse-exp (map 2nd (2nd datum)))
                           (map parse-exp (cddr datum)))))]
-       [else (if  (list? datum)
-                  (app-exp  (parse-exp (1st datum))
-		            (map parse-exp (cdr datum)))
-                  (eopl:error 'parse-exp "expression ~s is not a proper list" datum))])]
+       [else (if (list? datum)
+                 (app-exp  (parse-exp (1st datum))
+		           (map parse-exp (cdr datum)))
+                 (eopl:error 'parse-exp "expression ~s is not a proper list" datum))])]
      [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
 
 (define (check-lets exp)
@@ -183,25 +185,14 @@
          (eopl:error 'parse-exp "vars in ~s-exp must be symbols ~s" exp)]
         [else #f]))
 
+;;-------------------+
+;;                   |
+;;   ENVIRONMENTS    |
+;;                   |
+;;-------------------+
 
-
-
-
-
-
-
-;-------------------+
-;                   |
-;   ENVIRONMENTS    |
-;                   |
-;-------------------+
-
-
-
-
-
-; Environment definitions for CSSE 304 Scheme interpreter.  
-; Based on EoPL sections 2.2 and 2.3
+;; Environment definitions for CSSE 304 Scheme interpreter.  
+;; Based on EoPL sections 2.2 and 2.3
 
 (define empty-env
   (lambda ()
@@ -217,41 +208,51 @@
       (cond [(null? los) #f]
 	    [(eq? sym (car los)) pos]
 	    [else (loop (cdr los) (add1 pos))]))))
-	    
+
 (define apply-env
   (lambda (env sym) 
     (cases environment env 
-      [empty-env-record ()      
-        (eopl:error 'env "variable ~s not found." sym)]
-      [extended-env-record (syms vals env)
-	(let ((pos (list-find-position sym syms)))
-      	  (if (number? pos)
-	      (list-ref vals pos)
-	      (apply-env env sym)))])))
+           [empty-env-record ()      
+                             (apply-global-env sym)]
+           [extended-env-record (syms vals env)
+	                        (let ((pos (list-find-position sym syms)))
+      	                          (if (number? pos)
+	                              (list-ref vals pos)
+	                              (apply-env env sym)))])))
+
+(define apply-global-env
+  (lambda (sym) 
+    (cases environment global-env 
+           [empty-env-record ()      
+                             (apply-global-env sym)]
+           [extended-env-record (syms vals global-env)
+	                        (let ((pos (list-find-position sym syms)))
+      	                          (if (number? pos)
+	                              (list-ref vals pos)
+	                              (apply-env global-env sym)))])))
+
+;;-----------------------+
+;;                       |
+;;   SYNTAX EXPANSION    |
+;;                       |
+;;-----------------------+
+
+;; To be added in assignment 14.
+
+;;--------------------------------------+
+;;                                      |
+;;   CONTINUATION DATATYPE and APPLY-K  |
+;;                                      |
+;;--------------------------------------+
+
+;; To be added in assignment 18a.
 
 
-;-----------------------+
-;                       |
-;   SYNTAX EXPANSION    |
-;                       |
-;-----------------------+
-
-; To be added in assignment 14.
-
-;--------------------------------------+
-;                                      |
-;   CONTINUATION DATATYPE and APPLY-K  |
-;                                      |
-;--------------------------------------+
-
-; To be added in assignment 18a.
-
-
-;-------------------+
-;                   |
-;   INTERPRETER     |
-;                   |
-;-------------------+
+;;-------------------+
+;;                   |
+;;   INTERPRETER     |
+;;                   |
+;;-------------------+
 (define (lit? x)
   (or
    (number? x)
@@ -262,89 +263,170 @@
    (and (pair? x)
         (eqv? 'quote (car x)))))
 
-; top-level-eval evaluates a form in the global environment
+;; top-level-eval evaluates a form in the global environment
 
 (define top-level-eval
   (lambda (form)
-    ; later we may add things that are not expressions.
-    (eval-exp form)))
+    ;; later we may add things that are not expressions.
+    (eval-exp form (empty-env))))
 
-; eval-exp is the main component of the interpreter
+;; eval-exp is the main component of the interpreter
 
 (define eval-exp
-  (lambda (exp)
+  (lambda (exp env)
     (cases expression exp
-      [lit-exp (datum) datum]
-      [var-exp (id)
-	(apply-env init-env id)]
-      [app-exp (rator rands)
-        (let ([proc-value (eval-exp rator)]
-              [args (eval-rands rands)])
-          (apply-proc proc-value args))]
-      [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
+           [lit-exp (datum) datum]
+           [var-exp (id)
+	            (apply-env env id)]
+           [app-exp (rator rands)
+                    (let ([proc-value (eval-exp rator env)]
+                          [args (eval-rands rands env)])
+                      (apply-proc proc-value args))]
+           [if-exp (condition true false)
+                   (if (eval-exp condition env) (eval-exp true env) (eval-exp false env))]
+           [lambda-exp (ids bodies)
+                       (closure ids bodies env)]
+           [let-exp (ids vals bodies)
+                    (let ([evaled-vals (map (lambda (v) (eval-exp v env)) vals)])
+                      (eval-bodies
+                       bodies
+                       (extend-env ids
+                                   evaled-vals
+                                   env)))]
+           [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
-; evaluate the list of operands, putting results into a list
+;; evaluate the list of operands, putting results into a list
 
 (define eval-rands
-  (lambda (rands)
-    (map eval-exp rands)))
+  (lambda (rands env)
+    (map (lambda (rand) (eval-exp rand env)) rands)))
 
-;  Apply a procedure to its arguments.
-;  At this point, we only have primitive procedures.  
-;  User-defined procedures will be added later.
+(define eval-bodies
+  (lambda (bodies env)
+    (if (null? (cdr bodies))
+        (eval-exp (car bodies) env)
+        (begin
+          (eval-exp (car bodies) env)
+          (eval-bodies (cdr bodies) env)))))
+
+;;  Apply a procedure to its arguments.
+;;  At this point, we only have primitive procedures.  
+;;  User-defined procedures will be added later.
 
 (define apply-proc
   (lambda (proc-value args)
     (cases proc-val proc-value
-      [prim-proc (op) (apply-prim-proc op args)]
-			; You will add other cases
-      [else (eopl:error 'apply-proc
-                   "Attempt to apply bad procedure: ~s" 
-                    proc-value)])))
+           [prim-proc (op) (apply-prim-proc op args)]
+           [closure (inputs bodies env)
+                    (eval-bodies bodies (extend-env inputs args env))]
+           [else (eopl:error 'apply-proc
+                             "Attempt to apply bad procedure: ~s" 
+                             proc-value)])))
 
-(define *prim-proc-names* '(+ - * add1 sub1 cons =))
+(define *prim-proc-names* '(+ - * / add1 sub1 1+ 1- zero? not = < > <= >= cons car cdr list null?
+                              assq eq? equal? atom? length list->vector list? pair? procedure?
+                              vector->list vector make-vector vector-ref vector? number? symbol?
+                              set-car! set-cdr! vector-set! display newline caar cadr cdar cddr
+                              caaar caadr cadar cdaar caddr cdadr cddar cdddr))
 
-(define init-env         ; for now, our initial global environment only contains 
-  (extend-env            ; procedure names.  Recall that an environment associates
-     *prim-proc-names*   ;  a value (not an expression) with an identifier.
-     (map prim-proc      
-          *prim-proc-names*)
-     (empty-env)))
+(define init-env         ;; for now, our initial global environment only contains 
+  (extend-env            ;; procedure names.  Recall that an environment associates
+   *prim-proc-names*   ;;  a value (not an expression) with an identifier.
+   (map prim-proc      
+        *prim-proc-names*)
+   (empty-env)))
 
-; Usually an interpreter must define each 
-; built-in procedure individually.  We are "cheating" a little bit.
+(define global-env init-env)
+
+;; Usually an interpreter must define each 
+;; built-in procedure individually.  We are "cheating" a little bit.
 
 (define apply-prim-proc
   (lambda (prim-proc args)
+    #;(cond
+     [(list-find-position prim-proc '(+ - * / = < > <= >= list vector))
+      (apply (eval prim-proc) args)]
+     [(list-find-position prim-proc '(cons assq eq? equal? make-vector vector-ref set-car! set-cdr!))
+      ((eval prim-proc) (1st args) (2nd args))]
+     [(equal? prim-proc 'vector-set!)
+      (vector-set! (1st args) (2nd args) (3rd args))]
+     [(equal? prim-proc 'newline)
+      (newline)]
+     [(equal? prim-proc 'procedure?)
+      (proc-val? (1st args))]
+     [else
+      ((eval prim-proc) (1st args))])
     (case prim-proc
-      [(+) (+ (1st args) (2nd args))]
-      [(-) (- (1st args) (2nd args))]
-      [(*) (* (1st args) (2nd args))]
+      [(+) (apply + args)]
+      [(-) (apply - args)]
+      [(*) (apply * args)]
+      [(/) (apply / args)]
+      [(=) (apply = args)]
+      [(<) (apply < args)]
+      [(>) (apply > args)]
+      [(<=) (apply <= args)]
+      [(>=) (apply >= args)]
+      [(list) (apply list args)]
+      [(vector) (apply vector args)]
+
+      [(cons) (cons (1st args) (2nd args))]
+      [(assq) (assq (1st args) (2nd args))]
+      [(eq?) (eq? (1st args) (2nd args))]
+      [(equal?) (equal? (1st args) (2nd args))]
+      [(make-vector) (make-vector (1st args) (2nd args))]
+      [(vector-ref) (vector-ref (1st args) (2nd args))]
+      [(set-car!) (set-car! (1st args) (2nd args))]
+      [(set-cdr!) (set-cdr! (1st args) (2nd args))]
+      
+      [(vector-set!) (vector-set! (1st args) (2nd args) (3rd args))]
+      
+      [(newline) (newline)]
+
+      [(procedure?) (proc-val? (1st args))]
+
       [(add1) (+ (1st args) 1)]
       [(sub1) (- (1st args) 1)]
-      [(cons) (cons (1st args) (2nd args))]
-      [(=) (= (1st args) (2nd args))]
+      [(1+) (+ (1st args) 1)]
+      [(1-) (- (1st args) 1)]
+      [(zero?) (zero? (1st args))]
+      [(not) (not (1st args))]
+      [(car) (car (1st args))]
+      [(cdr) (cdr (1st args))]
+      [(null?) (null? (1st args))]
+      [(atom?) (atom? (1st args))]
+      [(length) (length (1st args))]
+      [(list->vector) (list->vector (1st args))]
+      [(list?) (list? (1st args))]
+      [(pair?) (pair? (1st args))]
+      [(vector->list) (vector->list (1st args))]
+      [(vector?) (vector? (1st args))]
+      [(number?) (number? (1st args))]
+      [(symbol?) (symbol? (1st args))]
+      [(display) (display (1st args))]
+      [(caar) (caar (1st args))]
+      [(cadr) (cadr (1st args))]
+      [(cdar) (cdar (1st args))]
+      [(cddr) (cddr (1st args))]
+      [(caaar) (caaar (1st args))]
+      [(caadr) (caadr (1st args))]
+      [(cadar) (cadar (1st args))]
+      [(cdaar) (cdaar (1st args))]
+      [(caddr) (caddr (1st args))]
+      [(cdadr) (cdadr (1st args))]
+      [(cddar) (cddar (1st args))]
+      [(cdddr) (cdddr (1st args))]
       [else (error 'apply-prim-proc 
-            "Bad primitive procedure name: ~s" 
-            prim-proc)])))
+                   "Bad primitive procedure name: ~s" 
+                   prim-proc)])))
 
-(define rep      ; "read-eval-print" loop.
+(define rep      ;; "read-eval-print" loop.
   (lambda ()
     (display "--> ")
     ;; notice that we don't save changes to the environment...
     (let ([answer (top-level-eval (parse-exp (read)))])
       ;; TODO: are there answers that should display differently?
       (eopl:pretty-print answer) (newline)
-      (rep))))  ; tail-recursive, so stack doesn't grow.
+      (rep))))  ;; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
   (lambda (x) (top-level-eval (parse-exp x))))
-
-
-
-
-
-
-
-
-
