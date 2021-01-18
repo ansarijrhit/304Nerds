@@ -26,8 +26,9 @@
   [set!-exp
    (id symbol?)
    (val expression?)]
-  [lit-exp
-   (val lit?)]
+  [lit-exp 
+    (val (lambda (val) #t))
+    ]
   [if-exp
    (condition expression?)
    (true expression?)
@@ -67,7 +68,11 @@
     (cond
      [(symbol? datum) (var-exp datum)]
      [(lit? datum) 
-      (lit-exp datum)]
+      (if (and (pair? datum) (eqv? 'quote (car datum)))
+        (lit-exp (2nd datum))
+        (lit-exp datum)
+      )
+      ]
      [(pair? datum)
       (cond
        [(eqv? (car datum) 'lambda )
