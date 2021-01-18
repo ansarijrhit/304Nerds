@@ -12,19 +12,46 @@
 ; parsed expression.  You'll probably want to replace this 
 ; code with your expression datatype from A11b
 
-(define-datatype expression expression?  
-  [var-exp        ; variable references
+(define-datatype expression expression?
+  [var-exp
    (id symbol?)]
-  [lit-exp        ; "Normal" data.  Did I leave out any types?
-   (datum
-    (lambda (x)
-      (ormap 
-       (lambda (pred) (pred x))
-       (list number? vector? boolean? symbol? string? pair? null?))))]
-  [app-exp        ; applications
+  [lambda-exp
+   (ids (list-of symbol?))
+   (bodies (list-of expression?))]
+  [improper-lambda-exp
+   (ids (list-of symbol?))
+   (extra-id symbol?)
+   (bodies (list-of expression?))]
+  [app-exp
    (rator expression?)
-   (rands (list-of expression?))]  
-  )
+   (rands (list-of expression?))]
+  [set!-exp
+   (id symbol?)
+   (val expression?)]
+  [lit-exp 
+    (val (lambda (val) #t))
+    ]
+  [if-exp
+   (condition expression?)
+   (true expression?)
+   (false expression?)]
+  [let-exp
+   (ids (list-of symbol?))
+   (vals (list-of expression?))
+   (bodies (list-of expression?))]
+  [named-let-exp
+   (name symbol?)
+   (ids (list-of symbol?))
+   (vals (list-of expression?))
+   (bodies (list-of expression?))]
+  [let*-exp
+   (ids (list-of symbol?))
+   (vals (list-of expression?))
+   (bodies (list-of expression?))]
+  [letrec-exp
+   (ids (list-of symbol?))
+   (vals (list-of expression?))
+   (bodies (list-of expression?))])
 	
 
 ;; environment type definitions
@@ -63,20 +90,98 @@
 (define 1st car)
 (define 2nd cadr)
 (define 3rd caddr)
+(define 4th cadddr)
 
 ; Again, you'll probably want to use your code form A11b
+
+(define (improper-split ls)
+  (let helper ([ls ls] [acc '()])
+    (if (pair? ls)
+        (helper (cdr ls) (cons (car ls) acc))
+        (list (reverse acc) ls))))
 
 (define parse-exp         
   (lambda (datum)
     (cond
      [(symbol? datum) (var-exp datum)]
-     [(number? datum) (lit-exp datum)]
+     [(lit? datum) 
+      (if (and (pair? datum) (eqv? 'quote (car datum)))
+        (lit-exp (2nd datum))
+        (lit-exp datum)
+      )
+      ]
      [(pair? datum)
       (cond
-       
-       [else (app-exp (parse-exp (1st datum))
-		      (map parse-exp (cdr datum)))])]
+       [(eqv? (car datum) 'lambda )
+        (if (null? (cddr datum))
+            (eopl:error 'parse-exp "lambda-expression: incorrect length ~s" datum)
+            (if (list? (2nd datum))
+                (if (andmap symbol? (2nd datum))
+                    (lambda-exp (2nd  datum) (map parse-exp (cddr datum)))
+                    (eopl:error 'parse-exp "lambda's formal arguments ~s must all be symbols" datum))
+                (let ([split (improper-split (2nd datum))])
+                  (improper-lambda-exp (car split)
+                                       (cadr split)
+                                       (map parse-exp (cddr datum))))))]
+       [(eqv? (car datum) 'set! )
+        (if (not (= 3 (length datum)))
+            (eopl:error 'parse-exp
+                        "set! expression ~s does not have (only) variable and expression" datum)
+            (set!-exp (2nd datum)
+                      (parse-exp (3rd datum))))]
+       [(eqv? (car datum) 'if )
+        (if (= (length datum) 4)
+            (if-exp (parse-exp (2nd datum))
+                    (parse-exp (3rd datum))
+                    (parse-exp (4th datum)))
+            (eopl:error 'parse-exp
+                        "if-expression ~s does not have (only) test, then, and else" datum))]
+       [(eqv? (car datum) 'let )
+        (let ((error (check-lets datum)))
+          (if error
+              error
+              (if (symbol? (2nd datum))
+                  (named-let-exp (2nd datum)
+                                 (map 1st (3rd datum))
+                                 (map parse-exp (map 2nd (3rd datum)))
+                                 (map parse-exp (cdddr datum)))
+                  (let-exp (map 1st (2nd datum))
+                           (map parse-exp (map 2nd (2nd datum)))
+                           (map parse-exp (cddr datum))))))]
+       [(eqv? (car datum) 'let* )
+        (let  ((error (check-lets datum)))
+          (if error
+              error
+              (let*-exp (map 1st (2nd datum))
+                        (map parse-exp (map 2nd (2nd datum)))
+                        (map parse-exp (cddr datum)))))]
+       [(eqv? (car datum) 'letrec )
+        (let  ((error (check-lets datum)))
+          (if error
+              error
+              (letrec-exp (map 1st (2nd datum))
+                          (map parse-exp (map 2nd (2nd datum)))
+                          (map parse-exp (cddr datum)))))]
+       [else (if  (list? datum)
+                  (app-exp  (parse-exp (1st datum))
+		            (map parse-exp (cdr datum)))
+                  (eopl:error 'parse-exp "expression ~s is not a proper list" datum))])]
      [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
+
+(define (check-lets exp)
+  (cond [(null? (cddr exp)) (eopl:error 'parse-exp "~s-expression has incorrect length ~s" exp)]
+        [(not (list? (2nd exp)))
+         (eopl:error 'parse-exp "declarations in ~s-expression not a list ~s" exp)]
+        [(ormap (lambda (x)
+                  (or (not (pair? x))
+                      (null? (cdr x))
+                      (not (pair? (cdr x)))
+                      (not (null? (cddr x)))))
+                (2nd exp))
+         (eopl:error 'parse-exp "declaration in ~s-exp is not a proper list of length 2 ~s" exp)]
+        [(not (andmap symbol? (map car (2nd exp))))
+         (eopl:error 'parse-exp "vars in ~s-exp must be symbols ~s" exp)]
+        [else #f]))
 
 
 
