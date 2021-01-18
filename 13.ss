@@ -252,7 +252,15 @@
 ;   INTERPRETER     |
 ;                   |
 ;-------------------+
-
+(define (lit? x)
+  (or
+   (number? x)
+   (string? x)
+   (symbol? x)
+   (boolean? x)
+   (char? x)
+   (and (pair? x)
+        (eqv? 'quote (car x)))))
 
 ; top-level-eval evaluates a form in the global environment
 
