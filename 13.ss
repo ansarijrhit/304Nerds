@@ -366,7 +366,7 @@
       [(>) (apply > args)]
       [(<=) (apply <= args)]
       [(>=) (apply >= args)]
-      [(list) (apply list args)]
+      [(list) args]
       [(vector) (apply vector args)]
 
       [(cons) (cons (1st args) (2nd args))]
@@ -425,7 +425,12 @@
     ;; notice that we don't save changes to the environment...
     (let ([answer (top-level-eval (parse-exp (read)))])
       ;; TODO: are there answers that should display differently?
-      (eopl:pretty-print answer) (newline)
+      (if (proc-val? answer)
+          (cases proc-val answer
+            [prim-proc (name) (eopl:pretty-print  (string-append "#<procedure " (symbol->string name) ">" ))]
+            [closure (inputs bodies env) (eopl:pretty-print "#<procedure>" )]) 
+          (eopl:pretty-print answer))
+      (newline)
       (rep))))  ;; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
