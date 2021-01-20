@@ -427,8 +427,8 @@
       ;; TODO: are there answers that should display differently?
       (if (proc-val? answer)
           (cases proc-val answer
-            [prim-proc (name) (eopl:pretty-print  (string-append "#<procedure " (symbol->string name) ">" ))]
-            [closure (inputs bodies env) (eopl:pretty-print "#<procedure>" )]) 
+            [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
+            [closure (inputs bodies env) (printf "~d\n" "#<procedure>" )]) 
           (eopl:pretty-print answer))
       (newline)
       (rep))))  ;; tail-recursive, so stack doesn't grow.
