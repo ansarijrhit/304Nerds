@@ -55,7 +55,16 @@
    (vals (list-of expression?))
    (bodies (list-of expression?))]
   [cond-exp
-   (tuples (list-of (list-of scheme-value?)))])
+   (tuples (list-of (list-of scheme-value?)))]
+  [begin-exp
+   (bodies (list-of expression?))]
+  [or-exp
+   (bodies (list-of expression?))]
+  [and-exp
+   (bodies (list-of expression?))]
+  [while-exp
+   (test expression?)
+   (bodies (list-of expression?))])
 
 
 ;; environment type definitions
@@ -153,6 +162,14 @@
                            "if-expression ~s does not have correct number of arguments" datum)])]
        [(eqv? (car datum) 'cond)
         (cond-exp (cdr datum))]
+       [(eqv? (car datum) 'begin)
+        (begin-exp (map parse-exp (cdr datum)))]
+       [(eqv? (car datum) 'or)
+        (or-exp (map parse-exp (cdr datum)))]
+       [(eqv? (car datum) 'and)
+        (and-exp (map parse-exp (cdr datum)))]
+       [(eqv? (car datum) 'while)
+        (while-exp (parse-exp (2nd datum)) (map parse-exp (cddr datum)))]
        [(eqv? (car datum) 'let )
         (let ((error (check-lets datum)))
           (if error
@@ -260,15 +277,19 @@
   (cases expression exp
          [lit-exp (datum) exp]
          [var-exp (id) exp]
-         [app-exp (rator rands) exp]
-         #;          [if-exp (condition true false)
-         (if (eval-exp condition env) (eval-exp true env) (eval-exp false env))]
-         #;        [one-armed-if-exp (condition true)
-         (if (eval-exp condition env) (eval-exp true env) (void))]
-         #;      [lambda-exp (ids bodies)
-         (closure ids bodies env)]
-         #;    [improper-lambda-exp (ids extra-id bodies)
-         (improper-closure ids extra-id bodies env)]
+         [app-exp (rator rands) (app-exp (syntax-expand rator) (map syntax-expand rands))]
+         [if-exp (condition true false)
+                 (if-exp (syntax-expand condition)
+                         (syntax-expand true)
+                         (syntax-expand false))]
+         [one-armed-if-exp (condition true)
+                           (one-armed-if-exp (syntax-expand condition)
+                                             (syntax-expand true))]
+         [lambda-exp (ids bodies)
+                     (lambda-exp ids
+                                 (map syntax-expand bodies))]
+         [improper-lambda-exp (ids extra-id bodies)
+                              (improper-lambda-exp ids extra-id (map syntax-expand bodies))]
          [cond-exp (tuples)
                    (cond
                     [(null? (cdr tuples))
@@ -283,6 +304,45 @@
                   (app-exp
                    (lambda-exp ids (map syntax-expand bodies))
                    (map syntax-expand vals))]
+         [begin-exp (bodies)
+                    (app-exp (lambda-exp '() (map syntax-expand bodies)) '())]
+         [or-exp (bodies) ;; TODO: make not bad
+                 (syntax-expand
+                  (if (null? bodies)
+                      (lit-exp #f)
+                      (let-exp '(long-name-very-long)
+                               (list (syntax-expand (1st bodies)))
+                               (list (if-exp (var-exp 'long-name-very-long)
+                                             (var-exp 'long-name-very-long)
+                                             (or-exp (cdr bodies)))))))]
+         [and-exp (bodies) ;; TODO: make not bad
+                  (syntax-expand
+                   (cond
+                    [(null? bodies) (lit-exp #t)]
+                    [(null? (cdr bodies))
+                     (let-exp '(long-name-very-long)
+                              (list (syntax-expand (1st bodies)))
+                              (list (if-exp (var-exp 'long-name-very-long)
+                                            (var-exp 'long-name-very-long)
+                                            (lit-exp #f))))]
+                    [else
+                     (if-exp (syntax-expand (car bodies))
+                             (syntax-expand (and-exp (cdr bodies)))
+                             (lit-exp #f))]))]
+         [let*-exp (ids vals bodies)
+                   (syntax-expand
+                    (if (null? ids)
+                        (let-exp '()
+                                 '()
+                                 bodies)
+                        (let-exp (list (1st ids))
+                                 (list (1st vals))
+                                 (list (let*-exp (cdr ids)
+                                                 (cdr vals)
+                                                 bodies)))))]
+         [while-exp (test bodies)
+                    (while-exp (syntax-expand test)
+                               (map syntax-expand bodies))]
          [else exp#;(eopl:error 'syntax-expand "Bad abstract syntax: ~a" exp)]))
 
 ;;--------------------------------------+
@@ -343,6 +403,11 @@
                        (extend-env ids
                                    evaled-vals
                                    env)))]
+           [while-exp (test bodies)
+                      (if (eval-exp test env)
+                          (begin
+                            (eval-bodies bodies env)
+                            (eval-exp exp env)))]
            [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;; evaluate the list of operands, putting results into a list
@@ -386,7 +451,8 @@
                               assq eq? equal? atom? length list->vector list? pair? procedure?
                               vector->list vector make-vector vector-ref vector? number? symbol?
                               set-car! set-cdr! vector-set! display newline caar cadr cdar cddr
-                              caaar caadr cadar cdaar caddr cdadr cddar cdddr map apply))
+                              caaar caadr cadar cdaar caddr cdadr cddar cdddr map apply quotient
+                              negative? positive?))
 
 (define init-env         ;; for now, our initial global environment only contains 
   (extend-env            ;; procedure names.  Recall that an environment associates
@@ -399,8 +465,6 @@
 
 ;; Usually an interpreter must define each 
 ;; built-in procedure individually.  We are "cheating" a little bit.
-
-(proc-val? map)
 
 (define apply-prim-proc
   (lambda (prim-proc args)
@@ -432,6 +496,8 @@
       [(>=) (apply >= args)]
       [(list) args]
       [(vector) (apply vector args)]
+
+      [(quotient) (quotient (1st args) (2nd args))]
       [(cons) (cons (1st args) (2nd args))]
       [(assq) (assq (1st args) (2nd args))]
       [(eq?) (eq? (1st args) (2nd args))]
@@ -451,6 +517,9 @@
       [(sub1) (- (1st args) 1)]
       [(1+) (+ (1st args) 1)]
       [(1-) (- (1st args) 1)]
+      
+      [(positive?) (positive? (1st args))]
+      [(negative?) (negative? (1st args))]
       [(zero?) (zero? (1st args))]
       [(not) (not (1st args))]
       [(car) (car (1st args))]
