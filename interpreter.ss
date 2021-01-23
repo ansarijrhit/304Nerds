@@ -306,29 +306,31 @@
                    (map syntax-expand vals))]
          [begin-exp (bodies)
                     (app-exp (lambda-exp '() (map syntax-expand bodies)) '())]
-         [or-exp (bodies) ;; TODO: make not bad
-                 (syntax-expand
-                  (if (null? bodies)
-                      (lit-exp #f)
-                      (let-exp '(long-name-very-long)
-                               (list (syntax-expand (1st bodies)))
-                               (list (if-exp (var-exp 'long-name-very-long)
-                                             (var-exp 'long-name-very-long)
-                                             (or-exp (cdr bodies)))))))]
-         [and-exp (bodies) ;; TODO: make not bad
-                  (syntax-expand
-                   (cond
-                    [(null? bodies) (lit-exp #t)]
-                    [(null? (cdr bodies))
-                     (let-exp '(long-name-very-long)
-                              (list (syntax-expand (1st bodies)))
-                              (list (if-exp (var-exp 'long-name-very-long)
-                                            (var-exp 'long-name-very-long)
-                                            (lit-exp #f))))]
-                    [else
-                     (if-exp (syntax-expand (car bodies))
-                             (syntax-expand (and-exp (cdr bodies)))
-                             (lit-exp #f))]))]
+         [or-exp (bodies)
+                 (let ([t (gensym)])
+                   (syntax-expand
+                    (if (null? bodies)
+                        (lit-exp #f)
+                        (let-exp (list t)
+                                 (list (syntax-expand (1st bodies)))
+                                 (list (if-exp (var-exp t)
+                                               (var-exp t)
+                                               (or-exp (cdr bodies))))))))]
+         [and-exp (bodies)
+                  (let ([t (gensym)])
+                    (syntax-expand
+                     (cond
+                      [(null? bodies) (lit-exp #t)]
+                      [(null? (cdr bodies))
+                       (let-exp (list t)
+                                (list (syntax-expand (1st bodies)))
+                                (list (if-exp (var-exp t)
+                                              (var-exp t)
+                                              (lit-exp #f))))]
+                      [else
+                       (if-exp (syntax-expand (car bodies))
+                               (syntax-expand (and-exp (cdr bodies)))
+                               (lit-exp #f))])))]
          [let*-exp (ids vals bodies)
                    (syntax-expand
                     (if (null? ids)
