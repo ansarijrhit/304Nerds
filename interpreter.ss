@@ -171,17 +171,17 @@
        [(eqv? (car datum) 'while)
         (while-exp (parse-exp (2nd datum)) (map parse-exp (cddr datum)))]
        [(eqv? (car datum) 'let )
-        (let ((error (check-lets datum)))
-          (if error
-              error
               (if (symbol? (2nd datum))
                   (named-let-exp (2nd datum)
                                  (map 1st (3rd datum))
                                  (map parse-exp (map 2nd (3rd datum)))
                                  (map parse-exp (cdddr datum)))
-                  (let-exp (map 1st (2nd datum))
-                           (map parse-exp (map 2nd (2nd datum)))
-                           (map parse-exp (cddr datum))))))]
+              (let ((error (check-lets datum)))
+                (if error
+                    error
+                    (let-exp (map 1st (2nd datum))
+                            (map parse-exp (map 2nd (2nd datum)))
+                            (map parse-exp (cddr datum))))))]
        [(eqv? (car datum) 'let* )
         (let  ((error (check-lets datum)))
           (if error
@@ -304,6 +304,9 @@
                   (app-exp
                    (lambda-exp ids (map syntax-expand bodies))
                    (map syntax-expand vals))]
+         [named-let-exp (name ids vals bodies)
+                        (named-let-exp name ids vals bodies)
+         ]
          [begin-exp (bodies)
                     (app-exp (lambda-exp '() (map syntax-expand bodies)) '())]
          [or-exp (bodies)
