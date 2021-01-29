@@ -76,7 +76,7 @@
   [empty-env-record]
   [extended-env-record
    (syms (list-of symbol?))
-   (vals (list-of scheme-value?))
+   (vals vector?)
    (env environment?)])
 
 
@@ -171,17 +171,17 @@
        [(eqv? (car datum) 'while)
         (while-exp (parse-exp (2nd datum)) (map parse-exp (cddr datum)))]
        [(eqv? (car datum) 'let )
-              (if (symbol? (2nd datum))
-                  (named-let-exp (2nd datum)
-                                 (map 1st (3rd datum))
-                                 (map parse-exp (map 2nd (3rd datum)))
-                                 (map parse-exp (cdddr datum)))
-              (let ((error (check-lets datum)))
-                (if error
-                    error
-                    (let-exp (map 1st (2nd datum))
-                            (map parse-exp (map 2nd (2nd datum)))
-                            (map parse-exp (cddr datum))))))]
+        (if (symbol? (2nd datum))
+            (named-let-exp (2nd datum)
+                           (map 1st (3rd datum))
+                           (map parse-exp (map 2nd (3rd datum)))
+                           (map parse-exp (cdddr datum)))
+            (let ((error (check-lets datum)))
+              (if error
+                  error
+                  (let-exp (map 1st (2nd datum))
+                           (map parse-exp (map 2nd (2nd datum)))
+                           (map parse-exp (cddr datum))))))]
        [(eqv? (car datum) 'let* )
         (let  ((error (check-lets datum)))
           (if error
@@ -232,7 +232,7 @@
 
 (define extend-env
   (lambda (syms vals env)
-    (extended-env-record syms vals env)))
+    (extended-env-record syms (list->vector vals) env)))
 
 (define list-find-position
   (lambda (sym los)
@@ -249,7 +249,7 @@
            [extended-env-record (syms vals env)
 	                        (let ((pos (list-find-position sym syms)))
       	                          (if (number? pos)
-	                              (list-ref vals pos)
+	                              (vector-ref vals pos)
 	                              (apply-env env sym)))])))
 
 (define apply-global-env
@@ -263,7 +263,7 @@
            [extended-env-record (syms vals global-env)
 	                        (let ((pos (list-find-position sym syms)))
       	                          (if (number? pos)
-	                              (list-ref vals pos)
+	                              (vector-ref vals pos)
                                       (eopl:error 'apply-global-env
                                                   "Exception: variable ~a is not bound" sym)))])))
 
@@ -305,8 +305,14 @@
                    (lambda-exp ids (map syntax-expand bodies))
                    (map syntax-expand vals))]
          [named-let-exp (name ids vals bodies)
-                        (named-let-exp name ids vals bodies)
-         ]
+                        (letrec-exp (list name)
+                                    (list (lambda-exp ids (map syntax-expand bodies)))
+                                    (list (app-exp (var-exp name) (map syntax-expand vals))))]
+         [letrec-exp (ids vals bodies)
+                     (letrec-exp
+                      ids
+                      (map syntax-expand vals)
+                      (map syntax-expand bodies))]
          [begin-exp (bodies)
                     (app-exp (lambda-exp '() (map syntax-expand bodies)) '())]
          [or-exp (bodies)
@@ -346,6 +352,17 @@
                                                  (cdr vals)
                                                  bodies)))))]
          [while-exp (test bodies)
+                    (let ([t (gensym)])
+                      (letrec-exp (list t)
+                                  (list
+                                   (lambda-exp '()
+                                               (list
+                                                (one-armed-if-exp
+                                                 (syntax-expand test)
+                                                 (begin-exp
+                                                  (append (map syntax-expand bodies)
+                                                          (list (app-exp (var-exp t) '()))))))))
+                                  (list (app-exp (var-exp t) '()))))
                     (while-exp (syntax-expand test)
                                (map syntax-expand bodies))]
          [else exp#;(eopl:error 'syntax-expand "Bad abstract syntax: ~a" exp)]))
@@ -401,13 +418,18 @@
                        (closure ids bodies env)]
            [improper-lambda-exp (ids extra-id bodies)
                                 (improper-closure ids extra-id bodies env)]
-           [let-exp (ids vals bodies)
-                    (let ([evaled-vals (map (lambda (v) (eval-exp v env)) vals)])
-                      (eval-bodies
-                       bodies
-                       (extend-env ids
-                                   evaled-vals
-                                   env)))]
+           #;[let-exp (ids vals bodies)
+           (let ([evaled-vals (map (lambda (v) (eval-exp v env)) vals)])
+           (eval-bodies
+           bodies
+           (extend-env ids
+           evaled-vals
+           env)))]
+           [letrec-exp (ids vals bodies)
+                       (eval-bodies bodies
+                                    (extend-env-recursively ids
+                                                            vals
+                                                            env))]
            [while-exp (test bodies)
                       (if (eval-exp test env)
                           (begin
@@ -416,6 +438,21 @@
            [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;; evaluate the list of operands, putting results into a list
+
+(define (extend-env-recursively ids vals old-env)
+  (let ([len (length ids)])
+    (let ([vec (make-vector len)])
+      (let ([env (extended-env-record ids
+                                      vec
+                                      old-env)])
+        (for-each (lambda (index lambda-ids lambda-bodies)
+                    (vector-set! vec
+                                 index
+                                 (closure lambda-ids lambda-bodies env)))
+                  (iota len)
+                  (map 2nd vals)
+                  (map 3rd vals))
+        env))))
 
 (define eval-rands
   (lambda (rands env)
@@ -457,7 +494,7 @@
                               vector->list vector make-vector vector-ref vector? number? symbol?
                               set-car! set-cdr! vector-set! display newline caar cadr cdar cddr
                               caaar caadr cadar cdaar caddr cdadr cddar cdddr map apply quotient
-                              negative? positive?))
+                              negative? positive? eqv? append list-tail))
 
 (define init-env         ;; for now, our initial global environment only contains 
   (extend-env            ;; procedure names.  Recall that an environment associates
@@ -501,6 +538,7 @@
       [(>=) (apply >= args)]
       [(list) args]
       [(vector) (apply vector args)]
+      [(append) (apply append args)]
 
       [(quotient) (quotient (1st args) (2nd args))]
       [(cons) (cons (1st args) (2nd args))]
@@ -511,6 +549,8 @@
       [(vector-ref) (vector-ref (1st args) (2nd args))]
       [(set-car!) (set-car! (1st args) (2nd args))]
       [(set-cdr!) (set-cdr! (1st args) (2nd args))]
+      [(eqv?) (eqv? (1st args) (2nd args))]
+      [(list-tail) (list-tail (1st args) (2nd args))]
       
       [(vector-set!) (vector-set! (1st args) (2nd args) (3rd args))]
       
