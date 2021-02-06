@@ -64,7 +64,10 @@
    (bodies (list-of expression?))]
   [while-exp
    (test expression?)
-   (bodies (list-of expression?))])
+   (bodies (list-of expression?))]
+  [define-exp
+   (id symbol?)
+   (val expression?)])
 
 
 ;; environment type definitions
@@ -96,6 +99,10 @@
    (bodies (list-of scheme-value?))
    (env environment?)])
 
+(define-datatype reference reference?
+  [local-ref
+   (vec vector?)
+   (index integer?)])
 
 ;;-------------------+
 ;;                   |
@@ -149,6 +156,12 @@
                         "set! expression ~s does not have (only) variable and expression" datum)
             (set!-exp (2nd datum)
                       (parse-exp (3rd datum))))]
+       [(eqv? (car datum) 'define)
+        (if (not (= 3 (length datum)))
+            (eopl:error 'parse-exp
+                        "define expression ~s does not have (only) variable and expression" datum)
+            (define-exp (2nd datum)
+              (parse-exp (3rd datum))))]
        [(eqv? (car datum) 'if)
         (cond
          [(= (length datum) 4)
@@ -252,20 +265,32 @@
 	                              (vector-ref vals pos)
 	                              (apply-env env sym)))])))
 
-(define apply-global-env
-  (lambda (sym) 
-    (cases environment global-env 
-           [empty-env-record ()
-                             (eopl:error 'apply-global-env
-                                         "Exception: global environment is empty")]
+(define (apply-env-ref env sym)
+  (cases environment env 
+         [empty-env-record ()
+                           (apply-global-env-ref sym)]
+         [extended-env-record (syms vals env)
+	                      (let ((pos (list-find-position sym syms)))
+                                (if pos
+      	                            (local-ref vals pos)
+                                    (apply-env-ref env sym)))]))
 
-           
-           [extended-env-record (syms vals global-env)
-	                        (let ((pos (list-find-position sym syms)))
-      	                          (if (number? pos)
-	                              (vector-ref vals pos)
-                                      (eopl:error 'apply-global-env
-                                                  "Exception: variable ~a is not bound" sym)))])))
+(define (deref ref)
+  (cases reference ref
+         [local-ref (vec index)
+                    (vector-ref vec index)]))
+
+(define (set-ref! ref value)
+  (cases reference ref
+         [local-ref (vec index)
+                    (vector-set! vec index value)]))
+
+(define (apply-global-env-ref sym)
+  (apply-env-ref global-env sym))
+
+(define apply-global-env
+  (lambda (sym)
+    (apply-env global-env sym)))
 
 ;;-----------------------+
 ;;                       |
@@ -359,12 +384,11 @@
                                                (list
                                                 (one-armed-if-exp
                                                  (syntax-expand test)
-                                                 (begin-exp
-                                                  (append (map syntax-expand bodies)
-                                                          (list (app-exp (var-exp t) '()))))))))
-                                  (list (app-exp (var-exp t) '()))))
-                    (while-exp (syntax-expand test)
-                               (map syntax-expand bodies))]
+                                                 (syntax-expand
+                                                  (begin-exp
+                                                   (append (map syntax-expand bodies)
+                                                           (list (app-exp (var-exp t) '())))))))))
+                                  (list (app-exp (var-exp t) '()))))]
          [else exp#;(eopl:error 'syntax-expand "Bad abstract syntax: ~a" exp)]))
 
 ;;--------------------------------------+
@@ -396,7 +420,29 @@
 (define top-level-eval
   (lambda (form)
     ;; later we may add things that are not expressions.
-    (eval-exp (syntax-expand form) (empty-env))))
+    (cases expression form
+           [begin-exp (bodies)
+                      (let helper ([bodies bodies])
+                        (if (null? bodies)
+                            (void)
+                            (cases expression (car bodies)
+                                   [define-exp (id val) 
+                                     (set! global-env
+                                           (extend-env (list id)
+                                                       (list (eval-exp (syntax-expand val)
+                                                                       (empty-env)))
+                                                       global-env))
+                                     (helper (cdr bodies))]
+                                   [else (eval-exp (syntax-expand (begin-exp bodies))
+                                                   (empty-env))])))]
+           [define-exp (id val)
+             (set! global-env
+                   (extend-env (list id)
+                               (list (eval-exp (syntax-expand val)
+                                               (empty-env)))
+                               global-env))]
+           [else
+            (eval-exp (syntax-expand form) (empty-env))])))
 
 ;; eval-exp is the main component of the interpreter
 
@@ -418,23 +464,14 @@
                        (closure ids bodies env)]
            [improper-lambda-exp (ids extra-id bodies)
                                 (improper-closure ids extra-id bodies env)]
-           #;[let-exp (ids vals bodies)
-           (let ([evaled-vals (map (lambda (v) (eval-exp v env)) vals)])
-           (eval-bodies
-           bodies
-           (extend-env ids
-           evaled-vals
-           env)))]
            [letrec-exp (ids vals bodies)
                        (eval-bodies bodies
                                     (extend-env-recursively ids
                                                             vals
                                                             env))]
-           [while-exp (test bodies)
-                      (if (eval-exp test env)
-                          (begin
-                            (eval-bodies bodies env)
-                            (eval-exp exp env)))]
+           [set!-exp (id val)
+                     (let ([ref (apply-env-ref env id)])
+                       (set-ref! ref (eval-exp (syntax-expand val) env)))]
            [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;; evaluate the list of operands, putting results into a list
@@ -504,6 +541,9 @@
    (empty-env)))
 
 (define global-env init-env)
+
+(define (reset-global-env)
+  (set! global-env init-env))
 
 ;; Usually an interpreter must define each 
 ;; built-in procedure individually.  We are "cheating" a little bit.
