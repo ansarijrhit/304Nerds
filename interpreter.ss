@@ -636,18 +636,19 @@
                    "Bad primitive procedure name: ~s" 
                    prim-proc)])))
 
-(define rep      ;; "read-eval-print" loop.
+(define rep ;; "read-eval-print" loop.
   (lambda ()
     (display "--> ")
     ;; notice that we don't save changes to the environment...
     (let ([answer (top-level-eval (parse-exp (read)))])
       ;; TODO: are there answers that should display differently?
-      (if (proc-val? answer)
-          (cases proc-val answer
-                 [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
-                 [else (printf "~d\n" "#<procedure>" )])
-          (eopl:pretty-print answer))
-      (newline)
+      (cond
+       [(proc-val? answer)
+        (cases proc-val answer
+               [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
+               [else (printf "~d\n" "#<procedure>" )])]
+       [(eq? answer (void))]
+       [else (eopl:pretty-print answer)])
       (rep))))  ;; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
