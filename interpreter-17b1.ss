@@ -12,11 +12,17 @@
 ;; parsed expression.  You'll probably want to replace this 
 ;; code with your expression datatype from A11b
 
+(define-datatype lambda-input lambda-input?
+  [sym-input
+   (id symbol?)]
+  [ref-input
+   (id symbol?)])
+
 (define-datatype expression expression?
   [var-exp
    (id symbol?)]
   [lambda-exp
-   (ids (list-of symbol?))
+   (ids (list-of lambda-input?))
    (bodies (list-of expression?))]
   [improper-lambda-exp
    (ids (list-of symbol?))
@@ -38,7 +44,7 @@
    (condition expression?)
    (true expression?)]
   [let-exp
-   (ids (list-of symbol?))
+   (ids (list-of lambda-input?))
    (vals (list-of expression?))
    (bodies (list-of expression?))]
   [named-let-exp
@@ -66,8 +72,8 @@
    (test expression?)
    (bodies (list-of expression?))]
   [define-exp
-   (id symbol?)
-   (val expression?)])
+    (id symbol?)
+    (val expression?)])
 
 
 ;; environment type definitions
@@ -78,7 +84,7 @@
 (define-datatype environment environment?
   [empty-env-record]
   [extended-env-record
-   (syms (list-of symbol?))
+   (syms (list-of lambda-input?))
    (vals vector?)
    (env environment?)])
 
@@ -90,7 +96,7 @@
   [prim-proc
    (name symbol?)]
   [closure
-   (ids (list-of symbol?))
+   (ids (list-of lambda-input?))
    (bodies (list-of scheme-value?))
    (env environment?)]
   [improper-closure
@@ -102,7 +108,11 @@
 (define-datatype reference reference?
   [local-ref
    (vec vector?)
-   (index integer?)])
+   (index integer?)]
+  [global-ref
+   (name symbol?)]
+  [lit-ref
+   (value box?)])
 
 ;;-------------------+
 ;;                   |
@@ -143,8 +153,14 @@
         (if (null? (cddr datum))
             (eopl:error 'parse-exp "lambda-expression: incorrect length ~s" datum)
             (if (list? (2nd datum))
-                (if (andmap symbol? (2nd datum))
-                    (lambda-exp (2nd  datum) (map parse-exp (cddr datum)))
+                (if (andmap (lambda (e) (or (symbol? e) (and (pair? e) (eq? (car e) 'ref))))
+                            (2nd datum))
+                    (lambda-exp (map (lambda (e)
+                                       (if (symbol? e)
+                                           (sym-input e)
+                                           (ref-input (2nd e))))
+                                     (2nd datum))
+                                (map parse-exp (cddr datum)))
                     (eopl:error 'parse-exp "lambda's formal arguments ~s must all be symbols" datum))
                 (let ([split (improper-split (2nd datum))])
                   (improper-lambda-exp (car split)
@@ -192,7 +208,11 @@
             (let ((error (check-lets datum)))
               (if error
                   error
-                  (let-exp (map 1st (2nd datum))
+                  (let-exp (map (lambda (e)
+                                  (if (symbol? e)
+                                      (sym-input e)
+                                      (ref-input (2nd e))))
+                                (map 1st (2nd datum)))
                            (map parse-exp (map 2nd (2nd datum)))
                            (map parse-exp (cddr datum))))))]
        [(eqv? (car datum) 'let* )
@@ -248,29 +268,33 @@
     (extended-env-record syms (list->vector vals) env)))
 
 (define list-find-position
-  (lambda (sym los)
-    (let loop ([los los] [pos 0])
-      (cond [(null? los) #f]
-	    [(eq? sym (car los)) pos]
-	    [else (loop (cdr los) (add1 pos))]))))
+  (lambda (sym loli)
+    (let loop ([loli loli] [pos 0])
+      (cond [(null? loli) #f]
+	    [(cases lambda-input (1st loli)
+                    [sym-input (id) (eq? id sym)]
+                    [ref-input (id) (eq? id sym)])
+             pos]
+	    [else (loop (cdr loli) (add1 pos))]))))
 
 (define apply-env
-  (lambda (env sym) 
-    (cases environment env 
-           [empty-env-record ()      
-                             (apply-global-env sym)]
-           [extended-env-record (syms vals env)
-	                        (let ((pos (list-find-position sym syms)))
-      	                          (if (number? pos)
-	                              (vector-ref vals pos)
-	                              (apply-env env sym)))])))
+  (lambda (env sym)
+    (let ([value (deref (apply-env-ref env sym))])
+      (if (reference? value)
+          (deref value)
+          value))))
+
+(define apply-env2
+  (lambda (env sym)
+    (let ([value (deref (apply-env-ref env sym))])
+      value)))
 
 (define (apply-env-ref env sym)
   (cases environment env 
          [empty-env-record ()
                            (apply-global-env-ref sym)]
          [extended-env-record (syms vals env)
-	                      (let ((pos (list-find-position sym syms)))
+                              (let ((pos (list-find-position sym syms)))
                                 (if pos
       	                            (local-ref vals pos)
                                     (apply-env-ref env sym)))]))
@@ -278,19 +302,32 @@
 (define (deref ref)
   (cases reference ref
          [local-ref (vec index)
-                    (vector-ref vec index)]))
+                    (vector-ref vec index)]
+         [global-ref (name)
+                     (hashtable-ref global-env name #f)]
+         [lit-ref (value)
+                  (unbox value)]))
 
 (define (set-ref! ref value)
   (cases reference ref
          [local-ref (vec index)
-                    (vector-set! vec index value)]))
+                    (vector-set! vec index value)]
+         [global-ref (name)
+                     (hashtable-set! global-env name value)]
+         [lit-ref (v)
+                  (set-box! v value)]))
 
 (define (apply-global-env-ref sym)
-  (apply-env-ref global-env sym))
+  (if (hashtable-contains? global-env sym)
+      (global-ref sym)
+      (eopl:error 'apply-global-env-ref "Global environment does not contain symbol ~a" sym)))
 
 (define apply-global-env
   (lambda (sym)
-    (apply-env global-env sym)))
+    (let ([result (hashtable-ref global-env sym #f)])
+      (if result
+          result
+          (eopl:error 'apply-global-env "Global environment does not contain symbol ~a" sym)))))
 
 ;;-----------------------+
 ;;                       |
@@ -371,7 +408,9 @@
                         (let-exp '()
                                  '()
                                  bodies)
-                        (let-exp (list (1st ids))
+                        (let-exp (list (if (symbol? (1st ids))
+                                           (sym-input (1st ids))
+                                           (ref-input (1st ids))))
                                  (list (1st vals))
                                  (list (let*-exp (cdr ids)
                                                  (cdr vals)
@@ -426,21 +465,15 @@
                         (if (null? bodies)
                             (void)
                             (cases expression (car bodies)
-                                   [define-exp (id val) 
-                                     (set! global-env
-                                           (extend-env (list id)
-                                                       (list (eval-exp (syntax-expand val)
-                                                                       (empty-env)))
-                                                       global-env))
+                                   [define-exp (id val)
+                                     (hashtable-set! global-env
+                                                     id
+                                                     (eval-exp (syntax-expand val) (empty-env)))
                                      (helper (cdr bodies))]
                                    [else (eval-exp (syntax-expand (begin-exp bodies))
                                                    (empty-env))])))]
            [define-exp (id val)
-             (set! global-env
-                   (extend-env (list id)
-                               (list (eval-exp (syntax-expand val)
-                                               (empty-env)))
-                               global-env))]
+             (hashtable-set! global-env id (eval-exp (syntax-expand val) (empty-env)))]
            [else
             (eval-exp (syntax-expand form) (empty-env))])))
 
@@ -453,8 +486,18 @@
            [var-exp (id)
 	            (apply-env env id)]
            [app-exp (rator rands)
-                    (let ([proc-value (eval-exp rator env)]
-                          [args (eval-rands rands env)])
+                    (let* ([proc-value (eval-exp rator env)]
+                           [args (eval-rands rands env
+                                             (cases proc-val proc-value
+                                                    [prim-proc (name)
+                                                               (make-list (length rands) #f)]
+                                                    [closure (ids bodies env)
+                                                             (map (lambda (id)
+                                                                    (cases lambda-input id
+                                                                           [sym-input (id) #f]
+                                                                           [ref-input (id) #t]))
+                                                                  ids)]
+                                                    [improper-closure (ids extra-id bodies env) #f]))])
                       (apply-proc proc-value args))]
            [if-exp (condition true false)
                    (if (eval-exp condition env) (eval-exp true env) (eval-exp false env))]
@@ -470,8 +513,11 @@
                                                             vals
                                                             env))]
            [set!-exp (id val)
-                     (let ([ref (apply-env-ref env id)])
-                       (set-ref! ref (eval-exp (syntax-expand val) env)))]
+                     (let ([value (apply-env2 env id)])
+                       (if (reference? value)
+                           (set-ref! value (eval-exp (syntax-expand val) env))
+                           (let ([ref (apply-env-ref env id)])
+                             (set-ref! ref (eval-exp (syntax-expand val) env)))))]
            [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;; evaluate the list of operands, putting results into a list
@@ -492,8 +538,16 @@
         env))))
 
 (define eval-rands
-  (lambda (rands env)
-    (map (lambda (rand) (eval-exp rand env)) rands)))
+  (lambda (rands env is-ref-list?)
+    (map (lambda (rand is-ref?)
+           (if is-ref?
+               (cases expression rand
+                      [var-exp (id) (apply-env-ref env id)]
+                      [app-exp (rator rands) (lit-ref (box (eval-exp rand env)))]
+                      [else (eopl:error 'eval-rands "Bad expression type for reference parameter ~a" rand)])
+               (eval-exp rand env)))
+         rands
+         is-ref-list?)))
 
 (define eval-bodies
   (lambda (bodies env)
@@ -533,12 +587,12 @@
                               caaar caadr cadar cdaar caddr cdadr cddar cdddr map apply quotient
                               negative? positive? eqv? append list-tail))
 
-(define init-env         ;; for now, our initial global environment only contains 
-  (extend-env            ;; procedure names.  Recall that an environment associates
-   *prim-proc-names*   ;;  a value (not an expression) with an identifier.
-   (map prim-proc      
-        *prim-proc-names*)
-   (empty-env)))
+(define init-env
+  (make-eq-hashtable))
+(for-each
+ (lambda (name)
+   (hashtable-set! init-env name (prim-proc name)))
+ *prim-proc-names*)
 
 (define global-env init-env)
 
@@ -640,16 +694,19 @@
   (lambda ()
     (display "--> ")
     ;; notice that we don't save changes to the environment...
-    (let ([answer (top-level-eval (parse-exp (read)))])
-      ;; TODO: are there answers that should display differently?
-      (cond
-       [(proc-val? answer)
-        (cases proc-val answer
-               [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
-               [else (printf "~d\n" "#<procedure>" )])]
-       [(eq? answer (void))]
-       [else (eopl:pretty-print answer)])
-      (rep))))  ;; tail-recursive, so stack doesn't grow.
+    (let ([input (read)])
+      (if (equal? input '(exit))
+          (void)
+          (let ([answer (top-level-eval (parse-exp input))])
+            ;; TODO: are there answers that should display differently?
+            (cond
+             [(proc-val? answer)
+              (cases proc-val answer
+                     [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
+                     [else (printf "~d\n" "#<procedure>" )])]
+             [(eq? answer (void))]
+             [else (eopl:pretty-print answer)])
+            (rep))))))  ;; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
   (lambda (x) (top-level-eval (parse-exp x))))
