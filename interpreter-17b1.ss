@@ -102,9 +102,7 @@
 (define-datatype reference reference?
   [local-ref
    (vec vector?)
-   (index integer?)]
-  [global-ref
-   (name symbol?)])
+   (index integer?)])
 
 ;;-------------------+
 ;;                   |
@@ -280,28 +278,19 @@
 (define (deref ref)
   (cases reference ref
          [local-ref (vec index)
-                    (vector-ref vec index)]
-         [global-ref (name)
-                     (hashtable-ref global-env name #f)]))
+                    (vector-ref vec index)]))
 
 (define (set-ref! ref value)
   (cases reference ref
          [local-ref (vec index)
-                    (vector-set! vec index value)]
-         [global-ref (name)
-                     (hashtable-set! global-env name value)]))
+                    (vector-set! vec index value)]))
 
 (define (apply-global-env-ref sym)
-  (if (hashtable-contains? global-env sym)
-      (global-ref sym)
-      (eopl:error 'apply-global-env-ref "Global environment does not contain symbol ~a" sym)))
+  (apply-env-ref global-env sym))
 
 (define apply-global-env
   (lambda (sym)
-    (let ([result (hashtable-ref global-env sym #f)])
-      (if result
-          result
-          (eopl:error 'apply-global-env "Global environment does not contain symbol ~a" sym)))))
+    (apply-env global-env sym)))
 
 ;;-----------------------+
 ;;                       |
@@ -437,15 +426,21 @@
                         (if (null? bodies)
                             (void)
                             (cases expression (car bodies)
-                                   [define-exp (id val)
-                                     (hashtable-set! global-env
-                                                     id
-                                                     (eval-exp (syntax-expand val) (empty-env)))
+                                   [define-exp (id val) 
+                                     (set! global-env
+                                           (extend-env (list id)
+                                                       (list (eval-exp (syntax-expand val)
+                                                                       (empty-env)))
+                                                       global-env))
                                      (helper (cdr bodies))]
                                    [else (eval-exp (syntax-expand (begin-exp bodies))
                                                    (empty-env))])))]
            [define-exp (id val)
-             (hashtable-set! global-env id (eval-exp (syntax-expand val) (empty-env)))]
+             (set! global-env
+                   (extend-env (list id)
+                               (list (eval-exp (syntax-expand val)
+                                               (empty-env)))
+                               global-env))]
            [else
             (eval-exp (syntax-expand form) (empty-env))])))
 
@@ -538,12 +533,12 @@
                               caaar caadr cadar cdaar caddr cdadr cddar cdddr map apply quotient
                               negative? positive? eqv? append list-tail))
 
-(define init-env
-  (make-eq-hashtable))
-(for-each
- (lambda (name)
-   (hashtable-set! init-env name (prim-proc name)))
- *prim-proc-names*)
+(define init-env         ;; for now, our initial global environment only contains 
+  (extend-env            ;; procedure names.  Recall that an environment associates
+   *prim-proc-names*   ;;  a value (not an expression) with an identifier.
+   (map prim-proc      
+        *prim-proc-names*)
+   (empty-env)))
 
 (define global-env init-env)
 
@@ -645,19 +640,16 @@
   (lambda ()
     (display "--> ")
     ;; notice that we don't save changes to the environment...
-    (let ([input (read)])
-      (if (equal? input '(exit))
-          (void)
-          (let ([answer (top-level-eval (parse-exp input))])
-            ;; TODO: are there answers that should display differently?
-            (cond
-             [(proc-val? answer)
-              (cases proc-val answer
-                     [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
-                     [else (printf "~d\n" "#<procedure>" )])]
-             [(eq? answer (void))]
-             [else (eopl:pretty-print answer)])
-            (rep))))))  ;; tail-recursive, so stack doesn't grow.
+    (let ([answer (top-level-eval (parse-exp (read)))])
+      ;; TODO: are there answers that should display differently?
+      (cond
+       [(proc-val? answer)
+        (cases proc-val answer
+               [prim-proc (name) (printf "~d\n" (string-append "#<procedure " (symbol->string name) ">" ))]
+               [else (printf "~d\n" "#<procedure>" )])]
+       [(eq? answer (void))]
+       [else (eopl:pretty-print answer)])
+      (rep))))  ;; tail-recursive, so stack doesn't grow.
 
 (define eval-one-exp
   (lambda (x) (top-level-eval (parse-exp x))))
