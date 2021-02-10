@@ -542,7 +542,11 @@
     (map (lambda (rand is-ref?)
            (if is-ref?
                (cases expression rand
-                      [var-exp (id) (apply-env-ref env id)]
+                      [var-exp (id)
+                               (let ([result (apply-env2 env id)])
+                                 (if (reference? result)
+                                     result
+                                     (apply-env-ref env id)))]
                       [app-exp (rator rands) (lit-ref (box (eval-exp rand env)))]
                       [else (eopl:error 'eval-rands "Bad expression type for reference parameter ~a" rand)])
                (eval-exp rand env)))
