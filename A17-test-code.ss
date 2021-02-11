@@ -490,8 +490,8 @@
   (test-order-matters!)
   (display 'misc) 
   (test-misc)    
-  (display 'ref) 
-  (test-ref)
+;   (display 'ref) 
+;   (test-ref)
   )
 
 (define r run-all)
