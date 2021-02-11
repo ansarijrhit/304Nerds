@@ -49,7 +49,7 @@
    (bodies (list-of expression?))]
   [named-let-exp
    (name symbol?)
-   (ids (list-of symbol?))
+   (ids (list-of lambda-input?))
    (vals (list-of expression?))
    (bodies (list-of expression?))]
   [let*-exp
@@ -57,7 +57,7 @@
    (vals (list-of expression?))
    (bodies (list-of expression?))]
   [letrec-exp
-   (ids (list-of symbol?))
+   (ids (list-of lambda-input?))
    (vals (list-of expression?))
    (bodies (list-of expression?))]
   [cond-exp
@@ -202,7 +202,11 @@
        [(eqv? (car datum) 'let )
         (if (symbol? (2nd datum))
             (named-let-exp (2nd datum)
-                           (map 1st (3rd datum))
+                           (map (lambda (e)
+                                  (if (symbol? e)
+                                      (sym-input e)
+                                      (ref-input (2nd e))))
+                                (map 1st (3rd datum)))
                            (map parse-exp (map 2nd (3rd datum)))
                            (map parse-exp (cdddr datum)))
             (let ((error (check-lets datum)))
@@ -226,7 +230,11 @@
         (let  ((error (check-lets datum)))
           (if error
               error
-              (letrec-exp (map 1st (2nd datum))
+              (letrec-exp (map (lambda (e)
+                                  (if (symbol? e)
+                                      (sym-input e)
+                                      (ref-input (2nd e))))
+                                (map 1st (2nd datum)))
                           (map parse-exp (map 2nd (2nd datum)))
                           (map parse-exp (cddr datum)))))]
        [else (if (list? datum)
@@ -277,17 +285,16 @@
              pos]
 	    [else (loop (cdr loli) (add1 pos))]))))
 
-(define apply-env
+(define apply-env-until-not-reference
   (lambda (env sym)
     (let ([value (deref (apply-env-ref env sym))])
       (if (reference? value)
           (deref value)
           value))))
 
-(define apply-env2
+(define apply-env
   (lambda (env sym)
-    (let ([value (deref (apply-env-ref env sym))])
-      value)))
+    (deref (apply-env-ref env sym))))
 
 (define (apply-env-ref env sym)
   (cases environment env 
@@ -367,7 +374,7 @@
                    (lambda-exp ids (map syntax-expand bodies))
                    (map syntax-expand vals))]
          [named-let-exp (name ids vals bodies)
-                        (letrec-exp (list name)
+                        (letrec-exp (list (sym-input name))
                                     (list (lambda-exp ids (map syntax-expand bodies)))
                                     (list (app-exp (var-exp name) (map syntax-expand vals))))]
          [letrec-exp (ids vals bodies)
@@ -382,7 +389,7 @@
                    (syntax-expand
                     (if (null? bodies)
                         (lit-exp #f)
-                        (let-exp (list t)
+                        (let-exp (list (sym-input t))
                                  (list (syntax-expand (1st bodies)))
                                  (list (if-exp (var-exp t)
                                                (var-exp t)
@@ -428,6 +435,8 @@
                                                    (append (map syntax-expand bodies)
                                                            (list (app-exp (var-exp t) '())))))))))
                                   (list (app-exp (var-exp t) '()))))]
+         [set!-exp (id val)
+                   (set!-exp id (syntax-expand val))]
          [else exp#;(eopl:error 'syntax-expand "Bad abstract syntax: ~a" exp)]))
 
 ;;--------------------------------------+
@@ -484,7 +493,7 @@
     (cases expression exp
            [lit-exp (datum) datum]
            [var-exp (id)
-	            (apply-env env id)]
+	            (apply-env-until-not-reference env id)]
            [app-exp (rator rands)
                     (let* ([proc-value (eval-exp rator env)]
                            [args (eval-rands rands env
@@ -513,11 +522,10 @@
                                                             vals
                                                             env))]
            [set!-exp (id val)
-                     (let ([value (apply-env2 env id)])
-                       (if (reference? value)
-                           (set-ref! value (eval-exp (syntax-expand val) env))
-                           (let ([ref (apply-env-ref env id)])
-                             (set-ref! ref (eval-exp (syntax-expand val) env)))))]
+                     (let ([value-of-id (apply-env env id)])
+                       (if (reference? value-of-id)
+                           (set-ref! value-of-id (eval-exp val env))
+                           (set-ref! (apply-env-ref env id) (eval-exp val env))))]
            [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;; evaluate the list of operands, putting results into a list
@@ -543,12 +551,13 @@
            (if is-ref?
                (cases expression rand
                       [var-exp (id)
-                               (let ([result (apply-env2 env id)])
-                                 (if (reference? result)
-                                     result
+                               (let ([value-of-id (apply-env env id)])
+                                 (if (reference? value-of-id)
+                                     value-of-id
                                      (apply-env-ref env id)))]
                       [app-exp (rator rands) (lit-ref (box (eval-exp rand env)))]
-                      [else (eopl:error 'eval-rands "Bad expression type for reference parameter ~a" rand)])
+                      [else (eopl:error 'eval-rands
+                                        "Bad expression type for reference parameter ~a" rand)])
                (eval-exp rand env)))
          rands
          is-ref-list?)))

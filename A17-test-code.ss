@@ -291,7 +291,7 @@
 		   ((1 2 3)(b b b))
 		   (5)
 		   (3 7 (4 7 3))
-		   )]
+		   (8 6))]
         [answers 
          (list 
 	  (eval-one-exp ' 
@@ -346,6 +346,20 @@
 			     (list x y z)))])
 	     (let ([result (rotate a b (+ a b))])
 	       (list a b result))))
+          (begin (reset-global-env)
+                 (eval-one-exp '
+                  (let ([a 3] 
+                        [b 4])
+                    (let* ([double-each (lambda ((ref s) (ref t))
+			                  (set! s (* 2 s))
+			                  (set! t (* 2 t)))]
+	                   [double-and-swap! (lambda ((ref x) (ref y))
+			                       (double-each x y)
+			                       (let ([temp x])
+			                         (set! x y)
+			                         (set! y temp)))])
+                      (double-and-swap! a b)
+                      (list a b)))))
 	  )])
     (display-results correct answers equal?)))
 
@@ -476,8 +490,8 @@
   (test-order-matters!)
   (display 'misc) 
   (test-misc)    
-  ;; (display 'ref) 
-  ;; (test-ref)
+  (display 'ref) 
+  (test-ref)
   )
 
 (define r run-all)
