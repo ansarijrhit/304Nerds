@@ -228,7 +228,7 @@
         [answers 
          (list 
           (eval-one-exp ' 
-           (let ([r 2] [ls '(3)] [count 7]) 
+           (let ([r 2] [ls (list 3)] [count 7]) 
 	     (let loop () 
 	       (if (> count 0) 
 	           (begin (set! ls (cons r ls)) 

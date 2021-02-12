@@ -28,7 +28,7 @@
    (rator expression?)
    (rands (list-of expression?))]
   [set!-exp
-   (id symbol?)
+   (id expression?)
    (val expression?)]
   [lit-exp 
    (val (lambda (val) #t))]
@@ -158,7 +158,7 @@
         (if (not (= 3 (length datum)))
             (eopl:error 'parse-exp
                         "set! expression ~s does not have (only) variable and expression" datum)
-            (set!-exp (2nd datum)
+            (set!-exp (var-exp (2nd datum))
                       (parse-exp (3rd datum))))]
        [(eqv? (car datum) 'define)
         (if (not (= 3 (length datum)))
@@ -258,25 +258,25 @@
 	    [(eq? sym (car los)) pos]
 	    [else (loop (cdr los) (add1 pos))]))))
 
-(define apply-env
-  (lambda (env sym) 
-    (cases environment env 
-           [empty-env-record ()      
-                             (apply-global-env sym)]
-           [extended-env-record (syms vals env)
-	                        (let ((pos (list-find-position sym syms)))
-      	                          (if (number? pos)
-	                              (vector-ref vals pos)
-	                              (apply-env env sym)))])))
+; (define apply-env
+;   (lambda (env sym) 
+;     (cases environment env 
+;            [empty-env-record ()      
+;                              (apply-global-env sym)]
+;            [extended-env-record (syms vals env)
+; 	                        (let ((pos (list-find-position sym syms)))
+;       	                          (if (number? pos)
+; 	                              (vector-ref vals pos)
+; 	                              (apply-env env sym)))])))
 
-(define apply-env2
+(define apply-env
   (lambda (env depth pos)
     (cases environment env
       [empty-env-record () 
-        (eopl:error 'apply-env2 "It's not like I like you or anything, BAKA")]
+        (eopl:error 'apply-env "It's not like I like you or anything, BAKA")]
       [extended-env-record (syms vals env)
-        (if (> depth 1)
-          (apply-env2 env (- depth 1) pos)
+        (if (> depth 0)
+          (apply-env env (- depth 1) pos)
           (vector-ref vals pos)       
         )
       ]
@@ -349,7 +349,7 @@
             (map (lambda (ex) (recur ex (cons ids boundvars))) bodies))]
           [app-exp (rator rands) (app-exp (recur rator boundvars)
             (map (lambda (ex) (recur ex boundvars)) rands))]
-          [set!-exp (id val) (set!-exp id (recur val boundvars))]
+          [set!-exp (id val) (set!-exp (recur id boundvars) (recur val boundvars))]
           [if-exp (condition true false) (if-exp 
             (recur condition boundvars)
             (recur true boundvars)
@@ -543,7 +543,7 @@
 (define eval-exp
   (lambda (exp env)
     (cases expression exp
-           [lex-exp (depth pos) (apply-env2 env depth pos)]
+           [lex-exp (depth pos) (apply-env env depth pos)]
            [lit-exp (datum) datum]
            [var-exp (id) (apply-global-env id)]
            [app-exp (rator rands)
@@ -563,12 +563,33 @@
                                     (extend-env-recursively ids
                                                             vals
                                                             env))]
-           [set!-exp (id val)
-                     (let ([ref (apply-env-ref env id)])
-                       (set-ref! ref (eval-exp (syntax-expand val) env)))]
+           [set!-exp (id val) 
+            (cases expression id
+              [lex-exp (depth pos) (change-lex-pointer! env depth pos (eval-exp (syntax-expand val) env))]
+              [var-exp (id) (set-ref! (apply-global-env-ref id) (eval-exp (syntax-expand val) env))]
+              [else (eopl:error 'eval-exp "set failed")]
+            )
+           ]
+                    ;  (let ([ref (apply-env-ref env id)])
+                    ;    (set-ref! ref (eval-exp (syntax-expand val) env)))]
            [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;; evaluate the list of operands, putting results into a list
+
+(define change-lex-pointer!
+  (lambda (env depth pos val)
+    (cases environment env
+      [empty-env-record () (void)]
+      [extended-env-record (syms vals env) 
+        (if (> depth 0)
+          (change-lex-pointer! env (- depth 1) pos val)
+          (vector-set! vals pos val)
+        )
+      ]
+    )
+  )
+)
+
 
 (define (extend-env-recursively ids vals old-env)
   (let ([len (length ids)])
