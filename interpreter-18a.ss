@@ -3,107 +3,6 @@
 
 (load "chez-init.ss")
 
-(define-datatype continuation continuation?
-  [init-k]
-  [apply-env-k
-   (vals vector?)
-   (env environment?)
-   (sym symbol?)
-   (k continuation?)]
-  [apply-env-ref-k
-   (vals vector?)
-   (env environment?)
-   (sym symbol?)
-   (k continuation?)]
-  [top-level-eval-k
-   (id symbol?)
-   (bodies (list-of expression?))
-   (helper procedure?)
-   (k continuation?)]
-  [top-level-eval-k2
-   (id symbol?)
-   (k continuation?)]
-  [eval-app-exp-k
-   (rands (list-of expression?))
-   (env environment?)
-   (k continuation?)]
-  [eval-app-exp-k2
-   (proc-val proc-val?)
-   (k continuation?)]
-  [eval-if-exp-k
-   (true expression?)
-   (false expression?)
-   (env environment?)
-   (k continuation?)]
-  [eval-one-armed-if-exp-k
-   (true expression?)
-   (env environment?)
-   (k continuation?)]
-  [eval-set!-exp-k
-   (env environment?)
-   (id symbol?)
-   (k continuation?)]
-  [eval-set!-exp-k2
-   (evaled-val scheme-value?)
-   (k continuation?)]
-  [map-cps-k
-   (proc-cps procedure?)
-   (L list?)
-   (k continuation?)]
-  [map-cps-k2
-   (proced-car scheme-value?)
-   (k continuation?)]
-  [eval-bodies-k
-   (bodies (list-of expression?))
-   (env environment?)
-   (k continuation?)])
-
-(define (apply-k k v)
-  (cases continuation k
-         [init-k () v]
-         [apply-env-k (vals env sym k)
-                      (if (number? v)
-	                  (apply-k k (vector-ref vals v))
-	                  (apply-env env sym k))]
-         [apply-env-ref-k (vals env sym k)
-                          (if v
-      	                      (apply-k k (local-ref vals v))
-                              (apply-env-ref env sym k))]
-         [top-level-eval-k (id bodies helper k)
-                           (hashtable-set! global-env
-                                           id
-                                           v)
-                           (helper (cdr bodies) k)]
-         [top-level-eval-k2 (id k)
-                            (hashtable-set! global-env id v)]
-         [eval-app-exp-k (rands env k)
-                         (eval-rands rands
-                                     env
-                                     (eval-app-exp-k2 v k))]
-         [eval-app-exp-k2 (proc-val k)
-                          (apply-proc proc-val v k)]
-         [eval-if-exp-k (true false env k)
-                        (if v
-                            (eval-exp true env k)
-                            (eval-exp false env k))]
-         [eval-one-armed-if-exp-k (true env k)
-                                  (if v
-                                      (eval-exp true env k)
-                                      (apply-k k (void)))]
-         [eval-set!-exp-k (env id k)
-                          (apply-env-ref env id
-                                         (eval-set!-exp-k2 v k))]
-         [eval-set!-exp-k2 (evaled-val k)
-                           (apply-k k (set-ref! v evaled-val))]
-         [map-cps-k (proc-cps L k)
-                    (map-cps proc-cps
-                             (cdr L)
-                             (map-cps-k2 v k))]
-         [map-cps-k2 (proced-car k)
-                     (apply-k k (cons proced-car v))]
-         [eval-bodies-k (bodies env k)
-                        (eval-bodies (cdr bodies) env k)]))
-
 ;;-------------------+
 ;;                   |
 ;;    DATATYPES      |
@@ -206,6 +105,109 @@
    (index integer?)]
   [global-ref
    (name symbol?)])
+
+;; datatype CPS
+
+(define-datatype continuation continuation?
+  [init-k]
+  [apply-env-k
+   (vals vector?)
+   (env environment?)
+   (sym symbol?)
+   (k continuation?)]
+  [apply-env-ref-k
+   (vals vector?)
+   (env environment?)
+   (sym symbol?)
+   (k continuation?)]
+  [top-level-eval-k
+   (id symbol?)
+   (bodies (list-of expression?))
+   (helper procedure?)
+   (k continuation?)]
+  [top-level-eval-k2
+   (id symbol?)
+   (k continuation?)]
+  [eval-app-exp-k
+   (rands (list-of expression?))
+   (env environment?)
+   (k continuation?)]
+  [eval-app-exp-k2
+   (proc-val proc-val?)
+   (k continuation?)]
+  [eval-if-exp-k
+   (true expression?)
+   (false expression?)
+   (env environment?)
+   (k continuation?)]
+  [eval-one-armed-if-exp-k
+   (true expression?)
+   (env environment?)
+   (k continuation?)]
+  [eval-set!-exp-k
+   (env environment?)
+   (id symbol?)
+   (k continuation?)]
+  [eval-set!-exp-k2
+   (evaled-val scheme-value?)
+   (k continuation?)]
+  [map-cps-k
+   (proc-cps procedure?)
+   (L list?)
+   (k continuation?)]
+  [map-cps-k2
+   (proced-car scheme-value?)
+   (k continuation?)]
+  [eval-bodies-k
+   (bodies (list-of expression?))
+   (env environment?)
+   (k continuation?)])
+
+(define (apply-k k v)
+  (cases continuation k
+         [init-k () v]
+         [apply-env-k (vals env sym k)
+                      (if (number? v)
+	                  (apply-k k (vector-ref vals v))
+	                  (apply-env env sym k))]
+         [apply-env-ref-k (vals env sym k)
+                          (if v
+      	                      (apply-k k (local-ref vals v))
+                              (apply-env-ref env sym k))]
+         [top-level-eval-k (id bodies helper k)
+                           (hashtable-set! global-env
+                                           id
+                                           v)
+                           (helper (cdr bodies) k)]
+         [top-level-eval-k2 (id k)
+                            (hashtable-set! global-env id v)]
+         [eval-app-exp-k (rands env k)
+                         (eval-rands rands
+                                     env
+                                     (eval-app-exp-k2 v k))]
+         [eval-app-exp-k2 (proc-val k)
+                          (apply-proc proc-val v k)]
+         [eval-if-exp-k (true false env k)
+                        (if v
+                            (eval-exp true env k)
+                            (eval-exp false env k))]
+         [eval-one-armed-if-exp-k (true env k)
+                                  (if v
+                                      (eval-exp true env k)
+                                      (apply-k k (void)))]
+         [eval-set!-exp-k (env id k)
+                          (apply-env-ref env id
+                                         (eval-set!-exp-k2 v k))]
+         [eval-set!-exp-k2 (evaled-val k)
+                           (apply-k k (set-ref! v evaled-val))]
+         [map-cps-k (proc-cps L k)
+                    (map-cps proc-cps
+                             (cdr L)
+                             (map-cps-k2 v k))]
+         [map-cps-k2 (proced-car k)
+                     (apply-k k (cons proced-car v))]
+         [eval-bodies-k (bodies env k)
+                        (eval-bodies (cdr bodies) env k)]))
 
 ;;-------------------+
 ;;                   |
@@ -784,5 +786,3 @@
 
 (define eval-one-exp
   (lambda (x) (top-level-eval (parse-exp x) (init-k))))
-
-(r)
