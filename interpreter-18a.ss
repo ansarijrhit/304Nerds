@@ -97,7 +97,9 @@
    (ids (list-of symbol?))
    (extra-id symbol?)
    (bodies (list-of scheme-value?))
-   (env environment?)])
+   (env environment?)]
+  [k-proc
+   (k continuation?)])
 
 (define-datatype reference reference?
   [local-ref
@@ -161,6 +163,13 @@
   [eval-bodies-k
    (bodies (list-of expression?))
    (env environment?)
+   (k continuation?)]
+  [map-prim-proc-helper-k
+   (proc proc-val?)
+   (args (list-of (list-of scheme-value?)))
+   (k continuation?)]
+  [map-prim-proc-helper-k2
+   (first scheme-value?)
    (k continuation?)])
 
 (define (apply-k k v)
@@ -207,7 +216,13 @@
          [map-cps-k2 (proced-car k)
                      (apply-k k (cons proced-car v))]
          [eval-bodies-k (bodies env k)
-                        (eval-bodies (cdr bodies) env k)]))
+                        (eval-bodies (cdr bodies) env k)]
+         [map-prim-proc-helper-k (proc args k)
+                                 (map-prim-proc-helper proc
+                                                       (map cdr args)
+                                                       (map-prim-proc-helper-k2 v k))]
+         [map-prim-proc-helper-k2 (first k)
+                                  (apply-k k (cons first v))]))
 
 ;;-------------------+
 ;;                   |
@@ -563,9 +578,6 @@
                     (eval-exp rator
                               env
                               (eval-app-exp-k rands env k))]
-           ;; (let ([proc-value (eval-exp rator env)]
-           ;;       [args (eval-rands rands env)])
-           ;;  (apply-proc proc-value args))]
            [if-exp (condition true false)
                    (eval-exp condition env
                              (eval-if-exp-k true false env k))]
@@ -645,6 +657,8 @@
                                           (extend-env (append ids (list extra-id))
                                                       (group-extras args (length ids)) env)
                                           k)]
+           [k-proc (k)
+                   (apply-k k (car args))]
            [else (eopl:error 'apply-proc
                              "Attempt to apply bad procedure: ~s" 
                              proc-value)])))
@@ -655,7 +669,7 @@
                               set-car! set-cdr! vector-set! display newline caar cadr cdar cddr
                               caaar caadr cadar cdaar caddr cdadr cddar cdddr map apply quotient
                               negative? positive? eqv? append list-tail newline display printf
-                              pretty-print))
+                              pretty-print call/cc exit-list))
 
 (define init-env
   (make-eq-hashtable))
@@ -671,6 +685,13 @@
 
 ;; Usually an interpreter must define each 
 ;; built-in procedure individually.  We are "cheating" a little bit.
+
+(define (map-prim-proc-helper proc args k)
+  (if (null? (1st args))
+      (apply-k k '())
+      (apply-proc proc
+                  (map 1st args)
+                  (map-prim-proc-helper-k proc args k))))
 
 (define apply-prim-proc
   (lambda (prim-proc args k)
@@ -689,7 +710,9 @@
     ((eval prim-proc) (1st args))])
     (case prim-proc
       [(map)
-       (apply map (cons (lambda x (apply-proc (1st args) x k)) (cdr args)))]
+       (map-prim-proc-helper (1st args) (cdr args) k)
+       #;(apply map (cons (lambda x (apply-proc (1st args) x k))
+       (cdr args)))]
       [(apply) (apply-proc (1st args) (2nd args) k)]
 
       [(+) (apply-k k (apply + args))]
@@ -762,6 +785,8 @@
       [(display) (apply-k k (display (1st args)))]
       [(printf) (apply-k k (apply printf args))]
       [(pretty-print) (apply-k k (pretty-print (1st args)))]
+      [(call/cc) (apply-proc (car args) (list (k-proc k)) k)]
+      [(exit-list) args]
       [else (error 'apply-prim-proc 
                    "Bad primitive procedure name: ~s" 
                    prim-proc)])))
@@ -773,7 +798,7 @@
     (let ([input (read)])
       (if (equal? input '(exit))
           (void)
-          (let ([answer (top-level-eval (parse-exp input))])
+          (let ([answer (top-level-eval (parse-exp input) (init-k))])
             ;; TODO: are there answers that should display differently?
             (cond
              [(proc-val? answer)
